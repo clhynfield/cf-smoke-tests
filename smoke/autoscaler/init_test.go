@@ -11,7 +11,9 @@ import (
 	ginkgoconfig "github.com/onsi/ginkgo/config"
 	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"
+	. "github.com/onsi/gomega/gexec"
 
+	"github.com/cloudfoundry-incubator/cf-test-helpers/cf"
 	"github.com/cloudfoundry-incubator/cf-test-helpers/workflowhelpers"
 	"github.com/cloudfoundry/cf-smoke-tests/smoke"
 )
@@ -37,6 +39,7 @@ const (
 )
 
 func TestSmokeTests(t *testing.T) {
+	const autoscalerInstance = "autoscaler-cf-smoke-tests"
 	RegisterFailHandler(Fail)
 
 	testConfig := smoke.GetConfig()
@@ -44,11 +47,20 @@ func TestSmokeTests(t *testing.T) {
 
 	SynchronizedBeforeSuite(func() []byte {
 		testSetup.Setup()
+
+		Expect(cf.Cf("create-service", "app-autoscaler", "standard", autoscalerInstance).Wait(CF_TIMEOUT_IN_SECONDS)).To(Exit(0))
+
+		Expect(cf.Cf("service", autoscalerInstance).Wait(CF_TIMEOUT_IN_SECONDS)).To(Exit(0))
+
 		return nil
 	}, func(data []byte) {})
 
 	SynchronizedAfterSuite(func() {
 	}, func() {
+		Expect(cf.Cf("delete-service", "-f", autoscalerInstance).Wait(CF_TIMEOUT_IN_SECONDS)).To(Exit(0))
+
+		Expect(cf.Cf("service", autoscalerInstance).Wait(CF_TIMEOUT_IN_SECONDS)).To(Exit(1))
+
 		testSetup.Teardown()
 	})
 
