@@ -11,6 +11,7 @@ import (
 
 	"github.com/cloudfoundry-incubator/cf-test-helpers/cf"
 	"github.com/cloudfoundry-incubator/cf-test-helpers/generator"
+	"github.com/cloudfoundry-incubator/cf-test-helpers/helpers"
 	"github.com/cloudfoundry/cf-smoke-tests/smoke"
 
 	. "github.com/onsi/ginkgo"
@@ -22,10 +23,12 @@ var _ = Describe("Autoscaler:", func() {
 	var testConfig = smoke.GetConfig()
 	var appName string
 	var appUrl string
+	var serviceName string
 	var expectedNullResponse string
 
 	BeforeEach(func() {
 		appName = testConfig.RuntimeApp
+		serviceName = testConfig.AutoscalerInstance
 		if appName == "" {
 			appName = generator.PrefixedRandomName("SMOKES", "APP")
 		}
@@ -52,7 +55,7 @@ var _ = Describe("Autoscaler:", func() {
 			smoke.SetBackend(appName)
 			Expect(cf.Cf("start", appName).Wait(CF_PUSH_TIMEOUT_IN_SECONDS)).To(Exit(0))
 
-			runPushTests(appName, appUrl, expectedNullResponse, testConfig)
+			runAutoscaleTests(appName, appUrl, serviceName, expectedNullResponse, testConfig)
 		})
 	})
 
@@ -64,24 +67,24 @@ var _ = Describe("Autoscaler:", func() {
 			smoke.EnableDiego(appName)
 			Expect(cf.Cf("start", appName).Wait(CF_PUSH_TIMEOUT_IN_SECONDS)).To(Exit(0))
 
-			runPushTests(appName, appUrl, expectedNullResponse, testConfig)
+			runAutoscaleTests(appName, appUrl, serviceName, expectedNullResponse, testConfig)
 		})
 	})
 })
 
-func runPushTests(appName, appUrl, expectedNullResponse string, testConfig *smoke.Config) {
+func runAutoscaleTests(appName, appUrl, serviceName, expectedNullResponse string, testConfig *smoke.Config) {
 	Eventually(func() (string, error) {
 		return getBodySkipSSL(testConfig.SkipSSLValidation, appUrl)
 	}, CF_TIMEOUT_IN_SECONDS).Should(ContainSubstring("It just needed to be restarted!"))
 
-	instances := 2
-	maxAttempts := 30
+	// instances := 2
+	// maxAttempts := 30
 
-	ExpectAppToScale(appName, instances)
+	ExpectAppToBindToAutoscaler(appName, serviceName)
+	// ExpectAppToAutoscaleDownOnIdle(appName)
+	// ExpectAllAppInstancesToStart(appName, instances, maxAttempts)
 
-	ExpectAllAppInstancesToStart(appName, instances, maxAttempts)
-
-	ExpectAllAppInstancesToBeReachable(appUrl, instances, maxAttempts)
+	// ExpectAllAppInstancesToBeReachable(appUrl, instances, maxAttempts)
 
 	if testConfig.Cleanup {
 		Expect(cf.Cf("delete", appName, "-f", "-r").Wait(CF_TIMEOUT_IN_SECONDS)).To(Exit(0))
@@ -92,8 +95,17 @@ func runPushTests(appName, appUrl, expectedNullResponse string, testConfig *smok
 	}
 }
 
-func ExpectAppToScale(appName string, instances int) {
-	Expect(cf.Cf("scale", appName, "-i", strconv.Itoa(instances)).Wait(CF_SCALE_TIMEOUT_IN_SECONDS)).To(Exit(0))
+func ExpectAppToBindToAutoscaler(appName string, serviceName string) {
+	Expect(cf.Cf("bind-service", appName, serviceName).Wait(CF_TIMEOUT_IN_SECONDS)).To(Exit(0))
+}
+
+func ExpectAppToAutoscaleDownOnIdle(appName string) {
+	testConfig := smoke.GetConfig()
+	// Expect(cf.Cf("scale", appName, "-i", "2").Wait(CF_SCALE_TIMEOUT_IN_SECONDS)).To(Exit(0))
+	// curlCmd := helpers.CurlSkipSSL(true, fmt.Sprintf("https://%s.%s/put/?%s", appName, testConfig.AppsDomain, p.Encode()))
+	curlCmd := helpers.CurlSkipSSL(testConfig.SkipSSLValidation, fmt.Sprintf("/v2/apps?q=name%%3A%s", appName))
+	Eventually(curlCmd, CF_TIMEOUT_IN_SECONDS).Should(Exit(0))
+	Expect(string(curlCmd.Out.Contents())).To(ContainSubstring("total_results"), "no results")
 }
 
 // Gets app status (up to maxAttempts) until all instances are up
