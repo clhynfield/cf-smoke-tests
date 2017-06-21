@@ -29,6 +29,9 @@ type Config struct {
 	// existing app names - if empty the space will be managed and a random app name will be used
 	LoggingApp string `json:"logging_app"`
 	RuntimeApp string `json:"runtime_app"`
+	AutoscalerApp string `json:"autoscaler_app"`
+
+	AutoscalerInstance string `json:"autoscaler_instance"`
 
 	ArtifactsDirectory string `json:"artifacts_directory"`
 
@@ -174,6 +177,7 @@ func newDefaultConfig() *Config {
 		EnableWindowsTests:          false,
 		EnableEtcdClusterCheckTests: false,
 		EtcdIpAddress:               "",
+		AutoscalerInstance:          "autoscaler-cf-smoke-tests",
 	}
 }
 

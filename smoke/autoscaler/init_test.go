@@ -39,29 +39,29 @@ const (
 )
 
 func TestSmokeTests(t *testing.T) {
-	const autoscalerInstance = "autoscaler-cf-smoke-tests"
 	RegisterFailHandler(Fail)
 
 	testConfig := smoke.GetConfig()
 	testSetup := workflowhelpers.NewTestSuiteSetup(testConfig)
 
+	serviceName := testConfig.AutoscalerInstance
+
 	SynchronizedBeforeSuite(func() []byte {
 		testSetup.Setup()
 
-		Expect(cf.Cf("create-service", "app-autoscaler", "standard", autoscalerInstance).Wait(CF_TIMEOUT_IN_SECONDS)).To(Exit(0))
-
-		Expect(cf.Cf("service", autoscalerInstance).Wait(CF_TIMEOUT_IN_SECONDS)).To(Exit(0))
+		Expect(cf.Cf("create-service", "app-autoscaler", "standard", serviceName).Wait(CF_TIMEOUT_IN_SECONDS)).To(Exit(0))
+		Expect(cf.Cf("service", serviceName).Wait(CF_TIMEOUT_IN_SECONDS)).To(Exit(0))
 
 		return nil
 	}, func(data []byte) {})
 
 	SynchronizedAfterSuite(func() {
 	}, func() {
-		Expect(cf.Cf("delete-service", "-f", autoscalerInstance).Wait(CF_TIMEOUT_IN_SECONDS)).To(Exit(0))
-
-		Expect(cf.Cf("service", autoscalerInstance).Wait(CF_TIMEOUT_IN_SECONDS)).To(Exit(1))
-
-		testSetup.Teardown()
+		if testConfig.Cleanup {
+			Expect(cf.Cf("delete-service", "-f", serviceName).Wait(CF_TIMEOUT_IN_SECONDS)).To(Exit(0))
+			Expect(cf.Cf("service", serviceName).Wait(CF_TIMEOUT_IN_SECONDS)).To(Exit(1))
+			testSetup.Teardown()
+		}
 	})
 
 	rs := []Reporter{}
