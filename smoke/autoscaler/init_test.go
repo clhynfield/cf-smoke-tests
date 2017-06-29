@@ -38,11 +38,16 @@ const (
 	CF_APP_STATUS_TIMEOUT_IN_SECONDS = 120
 )
 
+var (
+	TestSetup *workflowhelpers.ReproducibleTestSuiteSetup
+)
+
 func TestSmokeTests(t *testing.T) {
 	RegisterFailHandler(Fail)
 
 	testConfig := smoke.GetConfig()
 	testSetup := workflowhelpers.NewTestSuiteSetup(testConfig)
+	TestSetup = testSetup
 
 	serviceName := testConfig.AutoscalerInstance
 

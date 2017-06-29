@@ -3,15 +3,16 @@ package autoscaler
 import (
 	"crypto/tls"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"regexp"
 	"strconv"
 	"time"
+	"encoding/json"
 
 	"github.com/cloudfoundry-incubator/cf-test-helpers/cf"
 	"github.com/cloudfoundry-incubator/cf-test-helpers/generator"
-	"github.com/cloudfoundry-incubator/cf-test-helpers/helpers"
 	"github.com/cloudfoundry/cf-smoke-tests/smoke"
 
 	. "github.com/onsi/ginkgo"
@@ -81,7 +82,7 @@ func runAutoscaleTests(appName, appUrl, serviceName, expectedNullResponse string
 	// maxAttempts := 30
 
 	ExpectAppToBindToAutoscaler(appName, serviceName)
-	// ExpectAppToAutoscaleDownOnIdle(appName)
+	ExpectAppToAutoscaleDownOnIdle(appName)
 	// ExpectAllAppInstancesToStart(appName, instances, maxAttempts)
 
 	// ExpectAllAppInstancesToBeReachable(appUrl, instances, maxAttempts)
@@ -99,13 +100,71 @@ func ExpectAppToBindToAutoscaler(appName string, serviceName string) {
 	Expect(cf.Cf("bind-service", appName, serviceName).Wait(CF_TIMEOUT_IN_SECONDS)).To(Exit(0))
 }
 
+type App struct {
+	Entity struct {
+		Name                string `json:"name"`
+		Guid                string `json:"guid"`
+		ServiceBindingsLink string `json:"service_bindings_url"`
+	}
+}
+
+type Apps struct {
+	Resources []App `struct:"resources"`
+}
+
+type Binding struct {
+	Entity struct {
+		ServiceInstanceGuid string `json:"service_instance_guid"`
+	}
+}
+
+type Bindings struct {
+	Resources []Binding `struct:"resources"`
+}
+
 func ExpectAppToAutoscaleDownOnIdle(appName string) {
-	testConfig := smoke.GetConfig()
-	// Expect(cf.Cf("scale", appName, "-i", "2").Wait(CF_SCALE_TIMEOUT_IN_SECONDS)).To(Exit(0))
-	// curlCmd := helpers.CurlSkipSSL(true, fmt.Sprintf("https://%s.%s/put/?%s", appName, testConfig.AppsDomain, p.Encode()))
-	curlCmd := helpers.CurlSkipSSL(testConfig.SkipSSLValidation, fmt.Sprintf("/v2/apps?q=name%%3A%s", appName))
+	var autoscalerInstanceGuid string
+	autoscalerInstanceGuid = getAutoscalerInstanceGuidBoundToApp(appName)
+	Expect(autoscalerInstanceGuid).To(MatchRegexp("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"))
+}
+
+func getAutoscalerInstanceGuidBoundToApp(appName string) (string) {
+	// testConfig := smoke.GetConfig()
+	var bindings Bindings
+	var serviceInstanceGuid string
+	bindingsLink := getBindingsLinkFromApp(appName)
+	io.WriteString(GinkgoWriter, fmt.Sprintf("Bindings: %s\n", bindingsLink))
+	curlCmd := cf.Cf("curl", bindingsLink)
 	Eventually(curlCmd, CF_TIMEOUT_IN_SECONDS).Should(Exit(0))
 	Expect(string(curlCmd.Out.Contents())).To(ContainSubstring("total_results"), "no results")
+	err := json.Unmarshal([]byte(curlCmd.Out.Contents()), &bindings)
+	if err == nil {
+		for _, binding := range bindings.Resources {
+			serviceInstanceGuid = binding.Entity.ServiceInstanceGuid
+			io.WriteString(GinkgoWriter, fmt.Sprintf("Service Instance Guid: %s\n", serviceInstanceGuid))
+		}
+	}
+	return serviceInstanceGuid
+}
+
+func getBindingsLinkFromApp(appName string) (string) {
+	var apps Apps
+	bindings := ""
+	// Expect(cf.Cf("scale", appName, "-i", "2").Wait(CF_SCALE_TIMEOUT_IN_SECONDS)).To(Exit(0))
+	// curlCmd := helpers.CurlSkipSSL(true, fmt.Sprintf("https://%s.%s/put/?%s", appName, testConfig.AppsDomain, p.Encode()))
+	curlCmd := cf.Cf("curl", "/v2/apps?q=name%3A" + appName)
+	Eventually(curlCmd, CF_TIMEOUT_IN_SECONDS).Should(Exit(0))
+	Expect(string(curlCmd.Out.Contents())).To(ContainSubstring("total_results"), "no results")
+	err := json.Unmarshal([]byte(curlCmd.Out.Contents()), &apps)
+	if err == nil {
+		for _, app := range apps.Resources {
+			io.WriteString(GinkgoWriter, fmt.Sprintf("App: %s\n", app.Entity.Name))
+			if app.Entity.Name == appName {
+				bindings = app.Entity.ServiceBindingsLink
+			}
+		}
+	}
+	return bindings
 }
 
 // Gets app status (up to maxAttempts) until all instances are up
