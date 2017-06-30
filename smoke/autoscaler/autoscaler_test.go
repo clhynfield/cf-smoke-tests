@@ -113,8 +113,8 @@ type Apps struct {
 }
 
 type Binding struct {
-	Entity struct {
-		ServiceInstanceGuid string `json:"service_instance_guid"`
+	Metadata struct {
+		Guid                string `json:"guid"`
 	}
 }
 
@@ -123,15 +123,15 @@ type Bindings struct {
 }
 
 func ExpectAppToAutoscaleDownOnIdle(appName string) {
-	var autoscalerInstanceGuid string
-	autoscalerInstanceGuid = getAutoscalerInstanceGuidBoundToApp(appName)
-	Expect(autoscalerInstanceGuid).To(MatchRegexp("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"))
+	var bindingGuid string
+	bindingGuid = getAutoscalerBindingGuidFromApp(appName)
+	Expect(bindingGuid).To(MatchRegexp("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"))
 }
 
-func getAutoscalerInstanceGuidBoundToApp(appName string) (string) {
+func getAutoscalerBindingGuidFromApp(appName string) (string) {
 	// testConfig := smoke.GetConfig()
 	var bindings Bindings
-	var serviceInstanceGuid string
+	var bindingGuid string
 	bindingsLink := getBindingsLinkFromApp(appName)
 	io.WriteString(GinkgoWriter, fmt.Sprintf("Bindings: %s\n", bindingsLink))
 	curlCmd := cf.Cf("curl", bindingsLink)
@@ -140,11 +140,11 @@ func getAutoscalerInstanceGuidBoundToApp(appName string) (string) {
 	err := json.Unmarshal([]byte(curlCmd.Out.Contents()), &bindings)
 	if err == nil {
 		for _, binding := range bindings.Resources {
-			serviceInstanceGuid = binding.Entity.ServiceInstanceGuid
-			io.WriteString(GinkgoWriter, fmt.Sprintf("Service Instance Guid: %s\n", serviceInstanceGuid))
+			bindingGuid = binding.Metadata.Guid
+			io.WriteString(GinkgoWriter, fmt.Sprintf("Binding GUID: %s\n", bindingGuid))
 		}
 	}
-	return serviceInstanceGuid
+	return bindingGuid
 }
 
 func getBindingsLinkFromApp(appName string) (string) {
