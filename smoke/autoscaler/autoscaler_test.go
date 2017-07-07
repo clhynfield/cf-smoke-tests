@@ -3,7 +3,6 @@ package autoscaler
 import (
 	"crypto/tls"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net/http"
 	"regexp"
@@ -82,20 +81,14 @@ func runAutoscaleTests(appName, appUrl, serviceName, expectedNullResponse string
 	httpClient := &http.Client{Transport: httpTransport}
 
 	systemDomain := strings.TrimLeft(testConfig.ApiEndpoint, "api.")
-	autoscalerApi := fmt.Sprintf("https://autoscaler.%s/api", systemDomain)
+	autoscalerApi := fmt.Sprintf("https://autoscale.%s/api", systemDomain)
 
 	Eventually(func() (string, error) {
 		return getBodySkipSSL(testConfig.SkipSSLValidation, appUrl)
 	}, CF_TIMEOUT_IN_SECONDS).Should(ContainSubstring("It just needed to be restarted!"))
 
-	// instances := 2
-	// maxAttempts := 30
-
 	ExpectAppToBindToAutoscaler(appName, serviceName)
-	ExpectAppToAutoscaleDownOnSchedule(appName, httpClient, autoscalerApi)
-	// ExpectAllAppInstancesToStart(appName, instances, maxAttempts)
-
-	// ExpectAllAppInstancesToBeReachable(appUrl, instances, maxAttempts)
+	ExpectAppToAutoscaleOnLimitChange(appName, httpClient, autoscalerApi)
 
 	if testConfig.Cleanup {
 		Expect(cf.Cf("delete", appName, "-f", "-r").Wait(CF_TIMEOUT_IN_SECONDS)).To(Exit(0))
@@ -132,27 +125,32 @@ type Bindings struct {
 	Resources []Binding `struct:"resources"`
 }
 
-func ExpectAppToAutoscaleDownOnSchedule(appName string, httpClient *http.Client, autoscalerApi string) {
+func ExpectAppToAutoscaleOnLimitChange(appName string, httpClient *http.Client, autoscalerApi string) {
+	setAutoscalerLimitsOnApp(appName, 1, 1, httpClient, autoscalerApi)
+	ExpectAllAppInstancesToStart(appName, 1, 30)
+	setAutoscalerLimitsOnApp(appName, 5, 5, httpClient, autoscalerApi)
+	ExpectAllAppInstancesToStart(appName, 5, 30)
+}
+
+func setAutoscalerLimitsOnApp(appName string, min int, max int, httpClient *http.Client, autoscalerApi string) {
 	var bindingGuid string
 	bindingGuid = getAutoscalerBindingGuidFromApp(appName)
 	Expect(bindingGuid).To(MatchRegexp("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"))
-	changesUrl := fmt.Sprintf("%s/bindings/%s/scheduled_limit_changes", autoscalerApi, bindingGuid)
-	data := `{
-	  "executes_at": "2021-01-01T00:00:00Z",
-	  "min_instances": 2,
-	  "max_instances": 5,
-	  "recurrence": 1,
-	  "enabled": true
-	}`
+	bindingUrl := fmt.Sprintf("%s/bindings/%s", autoscalerApi, bindingGuid)
+	data := fmt.Sprintf("{\"min_instances\": %d, \"max_instances\": %d, \"enabled\": true}", min, max)
+	oauthToken := getCfOauthToken()
+	headers := map[string]string{
+		"Authorization": oauthToken,
+	}
+	_, err := putWithHeaders(httpClient, bindingUrl, data, headers)
+	Expect(err).To(BeNil(), "Failed to update Autoscaler limits")
+}
+
+func getCfOauthToken() (string) {
 	curlCmd := cf.Cf("oauth-token")
 	Eventually(curlCmd, CF_TIMEOUT_IN_SECONDS).Should(Exit(0))
 	oauthToken := strings.TrimSpace(string(curlCmd.Out.Contents()))
-	headers := map[string]string{
-		"Authorization": oauthToken,
-}
-	scheduledLimitChange, err := postWithHeaders(httpClient, changesUrl, data, headers)
-	Expect(err).To(BeNil(), fmt.Sprintf("Borked trying to schedule limit change (data: %s)", data))
-	io.WriteString(GinkgoWriter, fmt.Sprintf("scheduledLimitChange: %s\n", scheduledLimitChange))
+	return oauthToken
 }
 
 func getAutoscalerBindingGuidFromApp(appName string) (string) {
@@ -160,7 +158,6 @@ func getAutoscalerBindingGuidFromApp(appName string) (string) {
 	var bindings Bindings
 	var bindingGuid string
 	bindingsLink := getBindingsLinkFromApp(appName)
-	io.WriteString(GinkgoWriter, fmt.Sprintf("Bindings: %s\n", bindingsLink))
 	curlCmd := cf.Cf("curl", bindingsLink)
 	Eventually(curlCmd, CF_TIMEOUT_IN_SECONDS).Should(Exit(0))
 	Expect(string(curlCmd.Out.Contents())).To(ContainSubstring("total_results"), "no results")
@@ -168,7 +165,6 @@ func getAutoscalerBindingGuidFromApp(appName string) (string) {
 	if err == nil {
 		for _, binding := range bindings.Resources {
 			bindingGuid = binding.Metadata.Guid
-			io.WriteString(GinkgoWriter, fmt.Sprintf("Binding GUID: %s\n", bindingGuid))
 		}
 	}
 	return bindingGuid
@@ -185,7 +181,6 @@ func getBindingsLinkFromApp(appName string) (string) {
 	err := json.Unmarshal([]byte(curlCmd.Out.Contents()), &apps)
 	if err == nil {
 		for _, app := range apps.Resources {
-			io.WriteString(GinkgoWriter, fmt.Sprintf("App: %s\n", app.Entity.Name))
 			if app.Entity.Name == appName {
 				bindings = app.Entity.ServiceBindingsLink
 			}
@@ -295,8 +290,8 @@ func getBodySkipSSL(skip bool, url string) (string, error) {
 	return string(body), nil
 }
 
-func postWithHeaders(client *http.Client, url string, data string, headers map[string]string) (string, error) {
-	req, err := http.NewRequest("POST", url, strings.NewReader(data))
+func putWithHeaders(client *http.Client, url string, data string, headers map[string]string) (string, error) {
+	req, err := http.NewRequest("PUT", url, strings.NewReader(data))
 	for name, value := range headers {
 		req.Header.Add(name, value)
 	}
