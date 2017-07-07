@@ -142,8 +142,10 @@ func setAutoscalerLimitsOnApp(appName string, min int, max int, httpClient *http
 	headers := map[string]string{
 		"Authorization": oauthToken,
 	}
-	_, err := putWithHeaders(httpClient, bindingUrl, data, headers)
+	binding, err := putWithHeaders(httpClient, bindingUrl, data, headers)
 	Expect(err).To(BeNil(), "Failed to update Autoscaler limits")
+	Expect(binding).To(MatchRegexp(fmt.Sprintf("\"min_instances\": *%d", min)), "Failed to update Autoscaler limits")
+	Expect(binding).To(MatchRegexp(fmt.Sprintf("\"max_instances\": *%d", max)), "Failed to update Autoscaler limits")
 }
 
 func getCfOauthToken() (string) {
