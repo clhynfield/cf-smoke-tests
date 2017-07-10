@@ -132,6 +132,13 @@ func ExpectAppToAutoscaleOnLimitChange(appName string, httpClient *http.Client, 
 	ExpectAllAppInstancesToStart(appName, 1, 30)
 }
 
+func ExpectAppToAutoscaleDownOnIdle(appName string, httpClient *http.Client, autoscalerApi string) {
+	setAutoscalerLimitsOnApp(appName, 2, 2, httpClient, autoscalerApi)
+	ExpectAllAppInstancesToStart(appName, 2, 10)
+	setAutoscalerLimitsOnApp(appName, 1, 2, httpClient, autoscalerApi)
+	ExpectAllAppInstancesToStart(appName, 1, 30)
+}
+
 func setAutoscalerLimitsOnApp(appName string, min int, max int, httpClient *http.Client, autoscalerApi string) {
 	var bindingGuid string
 	bindingGuid = getAutoscalerBindingGuidFromApp(appName)
