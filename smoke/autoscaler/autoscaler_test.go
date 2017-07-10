@@ -51,7 +51,7 @@ var _ = Describe("Autoscaler:", func() {
 	})
 
 	Context("linux apps", func() {
-		It("can be pushed, scaled and deleted", func() {
+		It("can be pushed, bound to Autoscaler, autoscaled, and deleted", func() {
 			Expect(cf.Cf("push", appName, "-p", SIMPLE_RUBY_APP_BITS_PATH, "-d", testConfig.AppsDomain, "--no-start").Wait(CF_PUSH_TIMEOUT_IN_SECONDS)).To(Exit(0))
 			smoke.SetBackend(appName)
 			Expect(cf.Cf("start", appName).Wait(CF_PUSH_TIMEOUT_IN_SECONDS)).To(Exit(0))
@@ -61,7 +61,7 @@ var _ = Describe("Autoscaler:", func() {
 	})
 
 	Context("windows apps", func() {
-		It("can be pushed, scaled and deleted", func() {
+		It("can be pushed, bound to Autoscaler, autoscaled, and deleted", func() {
 			smoke.SkipIfWindows(testConfig)
 
 			Expect(cf.Cf("push", appName, "-p", SIMPLE_DOTNET_APP_BITS_PATH, "-d", testConfig.AppsDomain, "-s", "windows2012R2", "-b", "hwc_buildpack", "--no-start").Wait(CF_PUSH_TIMEOUT_IN_SECONDS)).To(Exit(0))
@@ -126,10 +126,10 @@ type Bindings struct {
 }
 
 func ExpectAppToAutoscaleOnLimitChange(appName string, httpClient *http.Client, autoscalerApi string) {
-	setAutoscalerLimitsOnApp(appName, 1, 1, httpClient, autoscalerApi)
-	ExpectAllAppInstancesToStart(appName, 1, 30)
 	setAutoscalerLimitsOnApp(appName, 5, 5, httpClient, autoscalerApi)
 	ExpectAllAppInstancesToStart(appName, 5, 30)
+	setAutoscalerLimitsOnApp(appName, 1, 1, httpClient, autoscalerApi)
+	ExpectAllAppInstancesToStart(appName, 1, 30)
 }
 
 func setAutoscalerLimitsOnApp(appName string, min int, max int, httpClient *http.Client, autoscalerApi string) {
